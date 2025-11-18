@@ -135,6 +135,13 @@ type MeltRow = {
 
 const STORAGE_KEY = "simexit_mvp_state_v1";
 
+const DEFAULT_WORLD_STATE: WorldState = {
+  epiTrend: "stable",
+  commsPressure: 2,
+  labBacklog: 1,
+  publicAnxiety: 2,
+};
+
 const TEAMS: Team[] = [
   { id: "team_eoc", name: "EOC" },
   { id: "team_lab", name: "Lab" },
@@ -149,7 +156,18 @@ const DEFAULT_EXERCISE: ExerciseDefinition = {
   primaryObjectives: "",
 };
 
+const DEFAULT_PHASES = ["Phase 1", "Phase 2", "Phase 3"];
+
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+const buildEmptyInboxes = (): Record<string, Inject[]> =>
+  Object.fromEntries(TEAMS.map((t) => [t.id, []]));
+
+const parsePhases = (value: string): string[] =>
+  value
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 // ---------- Root Component ----------
 
@@ -159,7 +177,7 @@ export default function App() {
 
   const [injects, setInjects] = useState<Inject[]>([]);
   const [inboxes, setInboxes] = useState<Record<string, Inject[]>>(
-    Object.fromEntries(TEAMS.map((t) => [t.id, []]))
+    () => buildEmptyInboxes()
   );
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
 
@@ -174,7 +192,9 @@ export default function App() {
   const [participantRole, setParticipantRole] = useState<string>("");
   const [participantLocked, setParticipantLocked] = useState<boolean>(false);
 
-  const [worldState, setWorldState] = useState<WorldState>({});
+  const [worldState, setWorldState] = useState<WorldState>(
+    DEFAULT_WORLD_STATE
+  );
   const [participantActions, setParticipantActions] = useState<
     ParticipantAction[]
   >([]);
@@ -188,7 +208,9 @@ export default function App() {
   const [exerciseStartAt, setExerciseStartAt] = useState<string | undefined>();
   const [exerciseEndAt, setExerciseEndAt] = useState<string | undefined>();
 
-  const [exercisePhases, setExercisePhases] = useState<string[]>([]);
+  const [exercisePhases, setExercisePhases] = useState<string[]>(() => [
+    ...DEFAULT_PHASES,
+  ]);
 
   // Used for recall window timing
   const [nowMs, setNowMs] = useState<number>(Date.now());
@@ -229,9 +251,7 @@ export default function App() {
         setInjects(data.injects);
       }
 
-      const emptyInboxes: Record<string, Inject[]> = Object.fromEntries(
-        TEAMS.map((t) => [t.id, [] as Inject[]])
-      );
+      const emptyInboxes = buildEmptyInboxes();
       if (data.inboxes && typeof data.inboxes === "object") {
         setInboxes({ ...emptyInboxes, ...data.inboxes });
       } else {
@@ -364,6 +384,27 @@ export default function App() {
     setExerciseStatus("ended");
     setExerciseEndAt(ts);
     addTimelineEvent({ type: "exercise.ended" });
+  };
+
+  const handleResetState = () => {
+    if (!confirm("Reset the exercise and clear all local data?")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    setInjects([]);
+    setInboxes(buildEmptyInboxes());
+    setTimeline([]);
+    setPaused(false);
+    setParticipantTeamId(TEAMS[0].id);
+    setParticipantTimelineMode("team");
+    setParticipantName("");
+    setParticipantRole("");
+    setParticipantLocked(false);
+    setWorldState({ ...DEFAULT_WORLD_STATE });
+    setParticipantActions([]);
+    setExerciseDef({ ...DEFAULT_EXERCISE });
+    setExerciseStatus("draft");
+    setExerciseStartAt(undefined);
+    setExerciseEndAt(undefined);
+    setExercisePhases([...DEFAULT_PHASES]);
   };
 
   // -------- Hot injects (send now) --------
@@ -717,6 +758,7 @@ export default function App() {
         setView={setView}
         exerciseDef={exerciseDef}
         exerciseStatus={exerciseStatus}
+        onReset={handleResetState}
       />
 
       {view === "fac" && (
@@ -780,11 +822,13 @@ function TopBar({
   setView,
   exerciseDef,
   exerciseStatus,
+  onReset,
 }: {
   view: "fac" | "part";
   setView: (v: "fac" | "part") => void;
   exerciseDef: ExerciseDefinition;
   exerciseStatus: ExerciseStatus;
+  onReset: () => void;
 }) {
   const exerciseTypeLabel = {
     tabletop: "Tabletop",
@@ -855,7 +899,21 @@ function TopBar({
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          onClick={onReset}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #d1d5db",
+            background: "white",
+            color: "#b91c1c",
+            fontWeight: 600,
+          }}
+        >
+          Reset state
+        </button>
+
         <button
           onClick={() => setView("fac")}
           style={{
@@ -1717,14 +1775,15 @@ function ScenarioStructurePanel({
   const [raw, setRaw] = useState<string>(phases.join(", "));
 
   useEffect(() => {
-    setRaw(phases.join(", "));
+    // Only sync the textarea when the upstream phases actually change.
+    // This avoids wiping in-progress typing (e.g., after entering a comma
+    // or space) while still reflecting external resets/loads.
+    const parsedRaw = parsePhases(raw);
+    const parsedPhases = parsePhases(phases.join(", "));
+    if (parsedRaw.join("|") !== parsedPhases.join("|")) {
+      setRaw(phases.join(", "));
+    }
   }, [phases]);
-
-  const parsePhases = (value: string): string[] =>
-    value
-      .split(/[,;\n]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
