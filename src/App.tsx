@@ -12,6 +12,25 @@ import {
   Team,
   TimelineEvent,
   WorldState,
+  PersistedState,
+} from "./types";
+import {
+  DEFAULT_EXERCISE,
+  DEFAULT_PHASES,
+  DEFAULT_WORLD_STATE,
+  STORAGE_KEY,
+  TEAMS,
+  buildEmptyInboxes,
+  parsePhases,
+} from "./constants";
+import TopBar from "./components/TopBar";
+import Timeline from "./components/Timeline";
+import MeltTable from "./components/MeltTable";
+import {
+  clearState,
+  loadState,
+  saveState,
+} from "./persistence/simExerciserStorage";
 } from "./types";
 
 // SimExerciser MVP (single-file, StackBlitz-friendly)
@@ -35,6 +54,8 @@ import {
 // - Acknowledgement summaries in MELT and sent-inject list + per-team acknowledgement summary card
 // - Per-inject evaluation rating + notes stored on injects and surfaced in details + MELT
 // - NEW: Scenario structure panel (phases list) + per-inject phase assignment surfaced in MELT & details
+
+// ---------- Constants ----------
 
 type PersistedState = {
   injects: Inject[];
@@ -166,15 +187,19 @@ export default function App() {
 
   // --- Load persisted state on first mount ---
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as Partial<PersistedState>;
+    const data = loadState();
+    if (!data) return;
 
-      if (Array.isArray(data.injects)) {
-        setInjects(data.injects);
-      }
+    if (Array.isArray(data.injects)) {
+      setInjects(data.injects);
+    }
 
+    const emptyInboxes = buildEmptyInboxes();
+    if (data.inboxes && typeof data.inboxes === "object") {
+      setInboxes({ ...emptyInboxes, ...data.inboxes });
+    } else {
+      setInboxes(emptyInboxes);
+    }
       const emptyInboxes = buildEmptyInboxes();
       if (data.inboxes && typeof data.inboxes === "object") {
         setInboxes({ ...emptyInboxes, ...data.inboxes });
@@ -182,96 +207,87 @@ export default function App() {
         setInboxes(emptyInboxes);
       }
 
-      if (Array.isArray(data.timeline)) {
-        setTimeline(data.timeline);
-      }
+    if (Array.isArray(data.timeline)) {
+      setTimeline(data.timeline);
+    }
 
-      if (typeof data.paused === "boolean") {
-        setPaused(data.paused);
-      }
+    if (typeof data.paused === "boolean") {
+      setPaused(data.paused);
+    }
 
-      if (data.participantTeamId) {
-        const validTeamIds = TEAMS.map((t) => t.id);
-        setParticipantTeamId(
-          validTeamIds.includes(data.participantTeamId)
-            ? data.participantTeamId
-            : TEAMS[0].id
-        );
-      }
+    if (data.participantTeamId) {
+      const validTeamIds = TEAMS.map((t) => t.id);
+      setParticipantTeamId(
+        validTeamIds.includes(data.participantTeamId)
+          ? data.participantTeamId
+          : TEAMS[0].id
+      );
+    }
 
-      if (data.participantTimelineMode) {
-        setParticipantTimelineMode(data.participantTimelineMode);
-      }
+    if (data.participantTimelineMode) {
+      setParticipantTimelineMode(data.participantTimelineMode);
+    }
 
-      if (typeof data.participantName === "string") {
-        setParticipantName(data.participantName);
-      }
-      if (typeof data.participantRole === "string") {
-        setParticipantRole(data.participantRole);
-      }
-      if (typeof data.participantLocked === "boolean") {
-        setParticipantLocked(data.participantLocked);
-      }
+    if (typeof data.participantName === "string") {
+      setParticipantName(data.participantName);
+    }
+    if (typeof data.participantRole === "string") {
+      setParticipantRole(data.participantRole);
+    }
+    if (typeof data.participantLocked === "boolean") {
+      setParticipantLocked(data.participantLocked);
+    }
 
-      if (data.worldState && typeof data.worldState === "object") {
-        setWorldState(data.worldState);
-      }
+    if (data.worldState && typeof data.worldState === "object") {
+      setWorldState(data.worldState);
+    }
 
-      if (Array.isArray(data.participantActions)) {
-        setParticipantActions(data.participantActions);
-      }
+    if (Array.isArray(data.participantActions)) {
+      setParticipantActions(data.participantActions);
+    }
 
-      if (data.exerciseDef && typeof data.exerciseDef === "object") {
-        setExerciseDef({ ...DEFAULT_EXERCISE, ...data.exerciseDef });
-      }
+    if (data.exerciseDef && typeof data.exerciseDef === "object") {
+      setExerciseDef({ ...DEFAULT_EXERCISE, ...data.exerciseDef });
+    }
 
-      if (data.exerciseStatus) {
-        setExerciseStatus(data.exerciseStatus);
-      }
+    if (data.exerciseStatus) {
+      setExerciseStatus(data.exerciseStatus);
+    }
 
-      if (data.exerciseStartAt) {
-        setExerciseStartAt(data.exerciseStartAt);
-      }
+    if (data.exerciseStartAt) {
+      setExerciseStartAt(data.exerciseStartAt);
+    }
 
-      if (data.exerciseEndAt) {
-        setExerciseEndAt(data.exerciseEndAt);
-      }
+    if (data.exerciseEndAt) {
+      setExerciseEndAt(data.exerciseEndAt);
+    }
 
-      if (Array.isArray(data.exercisePhases)) {
-        setExercisePhases(
-          data.exercisePhases.filter((p) => typeof p === "string")
-        );
-      }
-    } catch (e) {
-      console.error("Failed to load SimExerciser state:", e);
+    if (Array.isArray(data.exercisePhases)) {
+      setExercisePhases(data.exercisePhases.filter((p) => typeof p === "string"));
     }
   }, []);
 
   // --- Persist state whenever it changes ---
   useEffect(() => {
-    try {
-      const data: PersistedState = {
-        injects,
-        inboxes,
-        timeline,
-        paused,
-        participantTeamId,
-        participantTimelineMode,
-        participantName,
-        participantRole,
-        participantLocked,
-        worldState,
-        participantActions,
-        exerciseDef,
-        exerciseStatus,
-        exerciseStartAt,
-        exerciseEndAt,
-        exercisePhases,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error("Failed to save SimExerciser state:", e);
-    }
+    const data: PersistedState = {
+      injects,
+      inboxes,
+      timeline,
+      paused,
+      participantTeamId,
+      participantTimelineMode,
+      participantName,
+      participantRole,
+      participantLocked,
+      worldState,
+      participantActions,
+      exerciseDef,
+      exerciseStatus,
+      exerciseStartAt,
+      exerciseEndAt,
+      exercisePhases,
+    };
+    saveState(data);
   }, [
     injects,
     inboxes,
@@ -312,6 +328,7 @@ export default function App() {
 
   const handleResetState = () => {
     if (!confirm("Reset the exercise and clear all local data?")) return;
+    clearState();
     localStorage.removeItem(STORAGE_KEY);
     setInjects([]);
     setInboxes(buildEmptyInboxes());
@@ -3570,260 +3587,3 @@ function ParticipantView({
   );
 }
 
-// -------- Timeline & MELT --------
-
-function Timeline({ timeline }: { timeline: TimelineEvent[] }) {
-  if (!timeline.length) {
-    return (
-      <div style={{ fontSize: 12, color: "#6b7280" }}>No events.</div>
-    );
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      {timeline.map((e) => (
-        <div
-          key={e.id}
-          style={{
-            padding: 8,
-            borderRadius: 10,
-            border: "1px solid #e5e7eb",
-            background: backgroundForEvent(e.type),
-          }}
-        >
-          <div style={{ fontSize: 11, color: "#6b7280" }}>
-            {new Date(e.ts).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </div>
-          <div style={{ fontWeight: 500, fontSize: 13 }}>
-            {labelForEvent(e)}
-          </div>
-          {(e.objectives?.length || e.capabilities?.length) && (
-            <div
-              style={{
-                marginTop: 2,
-                fontSize: 11,
-                color: "#4b5563",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {e.objectives?.length
-                ? `Obj: ${e.objectives.join("; ")}`
-                : ""}
-              {e.objectives?.length && e.capabilities?.length ? " • " : ""}
-              {e.capabilities?.length
-                ? `Cap: ${e.capabilities.join("; ")}`
-                : ""}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MeltTable({
-  rows,
-  onSelectInject,
-}: {
-  rows: MeltRow[];
-  onSelectInject?: (injectId: string) => void;
-}) {
-  if (!rows.length) {
-    return (
-      <div style={{ fontSize: 12, color: "#6b7280" }}>
-        No injects yet to show in MELT.
-      </div>
-    );
-  }
-
-  const ratingShortLabel = (r?: EvaluationRating) => {
-    if (!r) return "—";
-    if (r === "not_observed") return "Not observed";
-    if (r === "partially") return "Partially";
-    if (r === "achieved") return "Achieved";
-    if (r === "exceeded") return "Exceeded";
-    return "—";
-  };
-
-  const ackCell = (ackCount?: number, totalTargets?: number) => {
-    if (
-      typeof totalTargets !== "number" ||
-      totalTargets <= 0 ||
-      typeof ackCount !== "number"
-    ) {
-      return "—";
-    }
-    if (ackCount <= 0) {
-      return "🔘 None";
-    }
-    if (ackCount < totalTargets) {
-      return `🟡 ${ackCount}/${totalTargets} teams`;
-    }
-    // ackCount === totalTargets
-    if (totalTargets === 1) {
-      return "🟢 Acknowledged";
-    }
-    return `🟢 All (${ackCount}/${totalTargets})`;
-  };
-
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        borderRadius: 10,
-        border: "1px solid #e5e7eb",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns:
-            "0.9fr 1.3fr 0.9fr 1.2fr 0.7fr 1.2fr 1.1fr",
-          fontWeight: 600,
-          background: "#f9fafb",
-          padding: "6px 8px",
-          borderBottom: "1px solid #e5e7eb",
-        }}
-      >
-        <div>When</div>
-        <div>Inject</div>
-        <div>Phase</div>
-        <div>Targets</div>
-        <div>Status</div>
-        <div>Acknowledgements</div>
-        <div>Evaluation</div>
-      </div>
-      <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-        {rows.map((r) => (
-          <div
-            key={r.id}
-            onClick={() => onSelectInject && onSelectInject(r.injectId)}
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "0.9fr 1.3fr 0.9fr 1.2fr 0.7fr 1.2fr 1.1fr",
-              padding: "6px 8px",
-              borderBottom: "1px solid #f3f4f6",
-              cursor: onSelectInject ? "pointer" : "default",
-            }}
-          >
-            <div style={{ whiteSpace: "nowrap" }}>{r.whenLabel}</div>
-            <div style={{ paddingRight: 6 }}>
-              <div style={{ fontWeight: 500 }}>{r.title}</div>
-              {(r.objectives?.length || r.capabilities?.length) && (
-                <div
-                  style={{
-                    marginTop: 2,
-                    color: "#4b5563",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {r.objectives?.length
-                    ? `Obj: ${r.objectives.join("; ")}`
-                    : ""}
-                  {r.objectives?.length && r.capabilities?.length ? " • " : ""}
-                  {r.capabilities?.length
-                    ? `Cap: ${r.capabilities.join("; ")}`
-                    : ""}
-                </div>
-              )}
-            </div>
-            <div style={{ paddingRight: 6 }}>
-              {r.phase ? r.phase : "—"}
-            </div>
-            <div style={{ paddingRight: 6 }}>{r.targets}</div>
-            <div style={{ textTransform: "capitalize" }}>{r.status}</div>
-            <div>{ackCell(r.ackCount, r.totalTargets)}</div>
-            <div>{ratingShortLabel(r.evaluationRating)}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// -------- Timeline helpers --------
-
-function backgroundForEvent(type: string) {
-  if (type === "inject.sent" || type === "inject.sent.group") return "#eff6ff";
-  if (type === "inject.queued" || type === "inject.queued.group")
-    return "#eef2ff";
-  if (type === "inject.recalled") return "#fffbeb";
-  if (type === "exercise.started") return "#e0f2fe";
-  if (type === "exercise.ended") return "#fee2e2";
-  if (type === "exercise.paused") return "#fef3c7";
-  if (type === "exercise.resumed") return "#dcfce7";
-  if (type === "inject.acknowledged") return "#ecfdf5";
-  return "white";
-}
-
-function formatRecipientsList(recips: string[] | undefined, allFlag?: boolean) {
-  if (!recips || recips.length === 0) return "";
-  const names = recips
-    .map((id) => TEAMS.find((t) => t.id === id)?.name || id)
-    .join(", ");
-  if (allFlag && recips.length === TEAMS.length) {
-    return "All teams";
-  }
-  return names;
-}
-
-function labelForEvent(e: TimelineEvent) {
-  const teamName = (id?: string) =>
-    TEAMS.find((t) => t.id === id)?.name || id;
-
-  if (e.type === "inject.queued.group") {
-    const tgt = e.recipients
-      ? formatRecipientsList(e.recipients, e.all)
-      : "Multiple teams";
-    const when = e.scheduledAt
-      ? new Date(e.scheduledAt).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-    return `Inject scheduled: ${e.title} → ${tgt}${
-      when ? ` (fires at ${when})` : ""
-    }`;
-  }
-
-  if (e.type === "inject.queued") {
-    const when = e.scheduledAt
-      ? new Date(e.scheduledAt).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-    return `Inject scheduled: ${e.title} → ${teamName(e.teamId)}${
-      when ? ` (fires at ${when})` : ""
-    }`;
-  }
-
-  if (e.type === "inject.sent.group") {
-    const tgt = e.recipients
-      ? formatRecipientsList(e.recipients, e.all)
-      : "Multiple teams";
-    return `Inject sent: ${e.title} → ${tgt}`;
-  }
-
-  if (e.type === "inject.sent") {
-    return `Inject sent: ${e.title} → ${teamName(e.teamId)}`;
-  }
-
-  if (e.type === "inject.recalled") return "Inject recalled";
-  if (e.type === "exercise.started") return "Exercise started";
-  if (e.type === "exercise.ended") return "Exercise ended";
-  if (e.type === "exercise.paused") return "Exercise paused";
-  if (e.type === "exercise.resumed") return "Exercise resumed";
-
-  if (e.type === "inject.acknowledged") {
-    const actor = e.actorName || teamName(e.teamId);
-    return `Inject acknowledged: ${e.title} (${actor})`;
-  }
-
-  return e.type;
-}

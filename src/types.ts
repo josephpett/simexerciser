@@ -84,3 +84,22 @@ export type MeltRow = {
   capabilities?: string[];
   phase?: string;
 };
+
+export type PersistedState = {
+  injects?: Inject[];
+  inboxes?: Record<string, Inject[]>;
+  timeline?: TimelineEvent[];
+  paused?: boolean;
+  participantTeamId?: string;
+  participantTimelineMode?: "team" | "global" | "hidden";
+  participantName?: string;
+  participantRole?: string;
+  participantLocked?: boolean;
+  worldState?: WorldState;
+  participantActions?: ParticipantAction[];
+  exerciseDef?: ExerciseDefinition;
+  exerciseStatus?: ExerciseStatus;
+  exerciseStartAt?: string;
+  exerciseEndAt?: string;
+  exercisePhases?: string[];
+};
