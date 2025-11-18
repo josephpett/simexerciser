@@ -1,4 +1,42 @@
 import React, { useState, useMemo, useEffect } from "react";
+import {
+  ExerciseDefinition,
+  ExerciseStatus,
+  ExerciseType,
+  Inject,
+  InjectStatus,
+  EvaluationRating,
+  MeltRow,
+  ParticipantAction,
+  ParticipantActionType,
+  Team,
+  TimelineEvent,
+  WorldState,
+  PersistedState,
+} from "./types";
+import {
+  DEFAULT_EXERCISE,
+  DEFAULT_PHASES,
+  DEFAULT_WORLD_STATE,
+  TEAMS,
+  buildEmptyInboxes,
+} from "./constants";
+import TopBar from "./components/TopBar";
+import Timeline from "./components/Timeline";
+import MeltTable from "./components/MeltTable";
+import ExerciseDefinitionPanel from "./components/ExerciseDefinitionPanel";
+import ScenarioStructurePanel from "./components/ScenarioStructurePanel";
+import ScenarioStatePanel from "./components/ScenarioStatePanel";
+import TeamAckSummary from "./components/TeamAckSummary";
+import {
+  ExerciseStatusControls,
+  PauseControls,
+} from "./components/ExerciseStatusControls";
+import {
+  clearState,
+  loadState,
+  saveState,
+} from "./persistence/simExerciserStorage";
 
 // SimExerciser MVP (single-file, StackBlitz-friendly)
 // Features:
@@ -22,132 +60,7 @@ import React, { useState, useMemo, useEffect } from "react";
 // - Per-inject evaluation rating + notes stored on injects and surfaced in details + MELT
 // - NEW: Scenario structure panel (phases list) + per-inject phase assignment surfaced in MELT & details
 
-// ---------- Types ----------
-
-type Team = { id: string; name: string };
-
-type InjectStatus = "queued" | "sent" | "recalled";
-
-type EvaluationRating = "not_observed" | "partially" | "achieved" | "exceeded";
-
-type Inject = {
-  id: string;
-  groupId?: string;
-  title: string;
-  body: string;
-  teamId: string;
-  status: InjectStatus;
-  ts: string; // created or last status change time
-  all?: boolean;
-  groupMaster?: boolean;
-  recipients?: string[];
-  scheduledFor?: string; // ISO datetime for scheduled injects
-  objectives?: string[];
-  capabilities?: string[];
-  evaluationRating?: EvaluationRating;
-  evaluationNotes?: string;
-  phase?: string;
-};
-
-type TimelineEvent = {
-  id: string;
-  ts: string;
-  type: string;
-  title?: string;
-  teamId?: string;
-  recipients?: string[];
-  all?: boolean;
-  scheduledAt?: string;
-  injectId?: string;
-  actorName?: string;
-  actionType?: string;
-  objectives?: string[];
-  capabilities?: string[];
-};
-
-type ParticipantActionType = "acknowledged";
-
-type ParticipantAction = {
-  id: string;
-  ts: string;
-  injectId: string;
-  teamId: string;
-  actorName?: string;
-  type: ParticipantActionType;
-};
-
-type WorldState = {
-  epiTrend?: "stable" | "worsening" | "improving";
-  commsPressure?: number;
-  labBacklog?: number;
-  publicAnxiety?: number;
-  [key: string]: any;
-};
-
-type ExerciseType = "tabletop" | "drill" | "functional" | "full-scale";
-
-type ExerciseDefinition = {
-  name: string;
-  type: ExerciseType;
-  overview: string;
-  primaryObjectives: string;
-};
-
-type ExerciseStatus = "draft" | "live" | "ended";
-
-type PersistedState = {
-  injects: Inject[];
-  inboxes: Record<string, Inject[]>;
-  timeline: TimelineEvent[];
-  paused: boolean;
-  participantTeamId: string;
-  participantTimelineMode: "team" | "global" | "hidden";
-  participantName?: string;
-  participantRole?: string;
-  participantLocked?: boolean;
-  worldState?: WorldState;
-  participantActions?: ParticipantAction[];
-  exerciseDef?: ExerciseDefinition;
-  exerciseStatus?: ExerciseStatus;
-  exerciseStartAt?: string;
-  exerciseEndAt?: string;
-  exercisePhases?: string[];
-};
-
-// For MELT rows
-type MeltRow = {
-  id: string; // display key (groupId or injectId)
-  injectId: string; // primary inject id to anchor selection/details
-  whenLabel: string;
-  whenMs: number;
-  title: string;
-  targets: string;
-  status: InjectStatus;
-  objectives?: string[];
-  capabilities?: string[];
-  ackCount?: number;
-  totalTargets?: number;
-  evaluationRating?: EvaluationRating;
-  phase?: string;
-};
-
 // ---------- Constants ----------
-
-const STORAGE_KEY = "simexit_mvp_state_v1";
-
-const TEAMS: Team[] = [
-  { id: "team_eoc", name: "EOC" },
-  { id: "team_lab", name: "Lab" },
-  { id: "team_comm", name: "Comms" },
-  { id: "team_field", name: "Field" },
-];
-
-const DEFAULT_EXERCISE: ExerciseDefinition = {
-  name: "Untitled exercise",
-  type: "tabletop",
-  overview: "",
-  primaryObjectives: "",
-};
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -159,7 +72,7 @@ export default function App() {
 
   const [injects, setInjects] = useState<Inject[]>([]);
   const [inboxes, setInboxes] = useState<Record<string, Inject[]>>(
-    Object.fromEntries(TEAMS.map((t) => [t.id, []]))
+    () => buildEmptyInboxes()
   );
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
 
@@ -174,7 +87,9 @@ export default function App() {
   const [participantRole, setParticipantRole] = useState<string>("");
   const [participantLocked, setParticipantLocked] = useState<boolean>(false);
 
-  const [worldState, setWorldState] = useState<WorldState>({});
+  const [worldState, setWorldState] = useState<WorldState>(
+    DEFAULT_WORLD_STATE
+  );
   const [participantActions, setParticipantActions] = useState<
     ParticipantAction[]
   >([]);
@@ -188,7 +103,9 @@ export default function App() {
   const [exerciseStartAt, setExerciseStartAt] = useState<string | undefined>();
   const [exerciseEndAt, setExerciseEndAt] = useState<string | undefined>();
 
-  const [exercisePhases, setExercisePhases] = useState<string[]>([]);
+  const [exercisePhases, setExercisePhases] = useState<string[]>(() => [
+    ...DEFAULT_PHASES,
+  ]);
 
   // Used for recall window timing
   const [nowMs, setNowMs] = useState<number>(Date.now());
@@ -220,114 +137,101 @@ export default function App() {
 
   // --- Load persisted state on first mount ---
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as Partial<PersistedState>;
+    const data = loadState();
+    if (!data) return;
 
-      if (Array.isArray(data.injects)) {
-        setInjects(data.injects);
-      }
+    if (Array.isArray(data.injects)) {
+      setInjects(data.injects);
+    }
 
-      const emptyInboxes: Record<string, Inject[]> = Object.fromEntries(
-        TEAMS.map((t) => [t.id, [] as Inject[]])
+    const emptyInboxes = buildEmptyInboxes();
+    if (data.inboxes && typeof data.inboxes === "object") {
+      setInboxes({ ...emptyInboxes, ...data.inboxes });
+    } else {
+      setInboxes(emptyInboxes);
+    }
+
+    if (Array.isArray(data.timeline)) {
+      setTimeline(data.timeline);
+    }
+
+    if (typeof data.paused === "boolean") {
+      setPaused(data.paused);
+    }
+
+    if (data.participantTeamId) {
+      const validTeamIds = TEAMS.map((t) => t.id);
+      setParticipantTeamId(
+        validTeamIds.includes(data.participantTeamId)
+          ? data.participantTeamId
+          : TEAMS[0].id
       );
-      if (data.inboxes && typeof data.inboxes === "object") {
-        setInboxes({ ...emptyInboxes, ...data.inboxes });
-      } else {
-        setInboxes(emptyInboxes);
-      }
+    }
 
-      if (Array.isArray(data.timeline)) {
-        setTimeline(data.timeline);
-      }
+    if (data.participantTimelineMode) {
+      setParticipantTimelineMode(data.participantTimelineMode);
+    }
 
-      if (typeof data.paused === "boolean") {
-        setPaused(data.paused);
-      }
+    if (typeof data.participantName === "string") {
+      setParticipantName(data.participantName);
+    }
+    if (typeof data.participantRole === "string") {
+      setParticipantRole(data.participantRole);
+    }
+    if (typeof data.participantLocked === "boolean") {
+      setParticipantLocked(data.participantLocked);
+    }
 
-      if (data.participantTeamId) {
-        const validTeamIds = TEAMS.map((t) => t.id);
-        setParticipantTeamId(
-          validTeamIds.includes(data.participantTeamId)
-            ? data.participantTeamId
-            : TEAMS[0].id
-        );
-      }
+    if (data.worldState && typeof data.worldState === "object") {
+      setWorldState(data.worldState);
+    }
 
-      if (data.participantTimelineMode) {
-        setParticipantTimelineMode(data.participantTimelineMode);
-      }
+    if (Array.isArray(data.participantActions)) {
+      setParticipantActions(data.participantActions);
+    }
 
-      if (typeof data.participantName === "string") {
-        setParticipantName(data.participantName);
-      }
-      if (typeof data.participantRole === "string") {
-        setParticipantRole(data.participantRole);
-      }
-      if (typeof data.participantLocked === "boolean") {
-        setParticipantLocked(data.participantLocked);
-      }
+    if (data.exerciseDef && typeof data.exerciseDef === "object") {
+      setExerciseDef({ ...DEFAULT_EXERCISE, ...data.exerciseDef });
+    }
 
-      if (data.worldState && typeof data.worldState === "object") {
-        setWorldState(data.worldState);
-      }
+    if (data.exerciseStatus) {
+      setExerciseStatus(data.exerciseStatus);
+    }
 
-      if (Array.isArray(data.participantActions)) {
-        setParticipantActions(data.participantActions);
-      }
+    if (data.exerciseStartAt) {
+      setExerciseStartAt(data.exerciseStartAt);
+    }
 
-      if (data.exerciseDef && typeof data.exerciseDef === "object") {
-        setExerciseDef({ ...DEFAULT_EXERCISE, ...data.exerciseDef });
-      }
+    if (data.exerciseEndAt) {
+      setExerciseEndAt(data.exerciseEndAt);
+    }
 
-      if (data.exerciseStatus) {
-        setExerciseStatus(data.exerciseStatus);
-      }
-
-      if (data.exerciseStartAt) {
-        setExerciseStartAt(data.exerciseStartAt);
-      }
-
-      if (data.exerciseEndAt) {
-        setExerciseEndAt(data.exerciseEndAt);
-      }
-
-      if (Array.isArray(data.exercisePhases)) {
-        setExercisePhases(
-          data.exercisePhases.filter((p) => typeof p === "string")
-        );
-      }
-    } catch (e) {
-      console.error("Failed to load SimExerciser state:", e);
+    if (Array.isArray(data.exercisePhases)) {
+      setExercisePhases(data.exercisePhases.filter((p) => typeof p === "string"));
     }
   }, []);
 
   // --- Persist state whenever it changes ---
   useEffect(() => {
-    try {
-      const data: PersistedState = {
-        injects,
-        inboxes,
-        timeline,
-        paused,
-        participantTeamId,
-        participantTimelineMode,
-        participantName,
-        participantRole,
-        participantLocked,
-        worldState,
-        participantActions,
-        exerciseDef,
-        exerciseStatus,
-        exerciseStartAt,
-        exerciseEndAt,
-        exercisePhases,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error("Failed to save SimExerciser state:", e);
-    }
+    const data: PersistedState = {
+      injects,
+      inboxes,
+      timeline,
+      paused,
+      participantTeamId,
+      participantTimelineMode,
+      participantName,
+      participantRole,
+      participantLocked,
+      worldState,
+      participantActions,
+      exerciseDef,
+      exerciseStatus,
+      exerciseStartAt,
+      exerciseEndAt,
+      exercisePhases,
+    };
+    saveState(data);
   }, [
     injects,
     inboxes,
@@ -364,6 +268,27 @@ export default function App() {
     setExerciseStatus("ended");
     setExerciseEndAt(ts);
     addTimelineEvent({ type: "exercise.ended" });
+  };
+
+  const handleResetState = () => {
+    if (!confirm("Reset the exercise and clear all local data?")) return;
+    clearState();
+    setInjects([]);
+    setInboxes(buildEmptyInboxes());
+    setTimeline([]);
+    setPaused(false);
+    setParticipantTeamId(TEAMS[0].id);
+    setParticipantTimelineMode("team");
+    setParticipantName("");
+    setParticipantRole("");
+    setParticipantLocked(false);
+    setWorldState({ ...DEFAULT_WORLD_STATE });
+    setParticipantActions([]);
+    setExerciseDef({ ...DEFAULT_EXERCISE });
+    setExerciseStatus("draft");
+    setExerciseStartAt(undefined);
+    setExerciseEndAt(undefined);
+    setExercisePhases([...DEFAULT_PHASES]);
   };
 
   // -------- Hot injects (send now) --------
@@ -717,6 +642,7 @@ export default function App() {
         setView={setView}
         exerciseDef={exerciseDef}
         exerciseStatus={exerciseStatus}
+        onReset={handleResetState}
       />
 
       {view === "fac" && (
@@ -769,118 +695,6 @@ export default function App() {
           exerciseStatus={exerciseStatus}
         />
       )}
-    </div>
-  );
-}
-
-// ---------- UI Components ----------
-
-function TopBar({
-  view,
-  setView,
-  exerciseDef,
-  exerciseStatus,
-}: {
-  view: "fac" | "part";
-  setView: (v: "fac" | "part") => void;
-  exerciseDef: ExerciseDefinition;
-  exerciseStatus: ExerciseStatus;
-}) {
-  const exerciseTypeLabel = {
-    tabletop: "Tabletop",
-    drill: "Drill",
-    functional: "Functional",
-    "full-scale": "Full-scale",
-  }[exerciseDef.type];
-
-  const statusLabel =
-    exerciseStatus === "draft"
-      ? "Draft"
-      : exerciseStatus === "live"
-      ? "Live"
-      : "Ended";
-
-  const statusColor =
-    exerciseStatus === "draft"
-      ? "#e5e7eb"
-      : exerciseStatus === "live"
-      ? "#bbf7d0"
-      : "#fecaca";
-
-  const statusTextColor =
-    exerciseStatus === "draft"
-      ? "#374151"
-      : exerciseStatus === "live"
-      ? "#166534"
-      : "#991b1b";
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        flexWrap: "wrap",
-        gap: 8,
-      }}
-    >
-      <div>
-        <div style={{ fontSize: 20, fontWeight: 600 }}>SimExerciser</div>
-        <div
-          style={{
-            fontSize: 12,
-            color: "#6b7280",
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            marginTop: 2,
-          }}
-        >
-          <span>{exerciseDef.name || "Untitled exercise"}</span>
-          <span>· {exerciseTypeLabel}</span>
-          <span
-            style={{
-              padding: "2px 8px",
-              borderRadius: 999,
-              background: statusColor,
-              color: statusTextColor,
-              fontSize: 10,
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}
-          >
-            {statusLabel}
-          </span>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={() => setView("fac")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 999,
-            border: "1px solid #d1d5db",
-            background: view === "fac" ? "#111827" : "white",
-            color: view === "fac" ? "white" : "#111827",
-          }}
-        >
-          Facilitator
-        </button>
-        <button
-          onClick={() => setView("part")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 999,
-            border: "1px solid #d1d5db",
-            background: view === "part" ? "#111827" : "white",
-            color: view === "part" ? "white" : "#111827",
-          }}
-        >
-          Participant
-        </button>
-      </div>
     </div>
   );
 }
@@ -1421,610 +1235,6 @@ function FacilitatorView({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function ExerciseStatusControls({
-  exerciseStatus,
-  exerciseStartAt,
-  exerciseEndAt,
-  onStartExercise,
-  onEndExercise,
-}: {
-  exerciseStatus: ExerciseStatus;
-  exerciseStartAt?: string;
-  exerciseEndAt?: string;
-  onStartExercise: () => void;
-  onEndExercise: () => void;
-}) {
-  const startLabel = exerciseStartAt
-    ? new Date(exerciseStartAt).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-
-  const endLabel = exerciseEndAt
-    ? new Date(exerciseEndAt).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "#f9fafb",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        gap: 8,
-        flexWrap: "wrap",
-      }}
-    >
-      <div style={{ fontSize: 13 }}>
-        <div style={{ fontWeight: 600 }}>Exercise lifecycle</div>
-        <div style={{ fontSize: 11, color: "#6b7280" }}>
-          {exerciseStatus === "draft" && "Configure setup, then start exercise."}
-          {exerciseStatus === "live" &&
-            `Running${startLabel ? ` since ${startLabel}` : ""}.`}
-          {exerciseStatus === "ended" &&
-            `Ended${endLabel ? ` at ${endLabel}` : ""}.`}
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 6 }}>
-        {exerciseStatus === "draft" && (
-          <button
-            type="button"
-            onClick={onStartExercise}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: "#16a34a",
-              color: "white",
-              fontSize: 12,
-            }}
-          >
-            Start exercise
-          </button>
-        )}
-        {exerciseStatus === "live" && (
-          <button
-            type="button"
-            onClick={onEndExercise}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: "#b91c1c",
-              color: "white",
-              fontSize: 12,
-            }}
-          >
-            End exercise
-          </button>
-        )}
-        {exerciseStatus === "ended" && (
-          <span
-            style={{
-              fontSize: 11,
-              padding: "2px 8px",
-              borderRadius: 999,
-              border: "1px solid #e5e7eb",
-              color: "#6b7280",
-            }}
-          >
-            Exercise ended
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PauseControls({
-  paused,
-  onPause,
-  onResume,
-  exerciseStatus,
-}: {
-  paused: boolean;
-  onPause: () => void;
-  onResume: () => void;
-  exerciseStatus: ExerciseStatus;
-}) {
-  const controlsDisabled = exerciseStatus !== "live";
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        opacity: controlsDisabled ? 0.5 : 1,
-      }}
-    >
-      {paused ? (
-        <button
-          onClick={onResume}
-          disabled={controlsDisabled}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 999,
-            border: "none",
-            background: controlsDisabled ? "#9ca3af" : "#059669",
-            color: "white",
-          }}
-        >
-          Resume
-        </button>
-      ) : (
-        <button
-          onClick={onPause}
-          disabled={controlsDisabled}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 999,
-            border: "none",
-            background: controlsDisabled ? "#9ca3af" : "#d97706",
-            color: "white",
-          }}
-        >
-          Pause
-        </button>
-      )}
-      {controlsDisabled && (
-        <span style={{ fontSize: 11, color: "#6b7280" }}>
-          Pause/resume available when exercise is live.
-        </span>
-      )}
-    </div>
-  );
-}
-
-function ExerciseDefinitionPanel({
-  exerciseDef,
-  onUpdateExerciseDef,
-  disabled,
-}: {
-  exerciseDef: ExerciseDefinition;
-  onUpdateExerciseDef: (patch: Partial<ExerciseDefinition>) => void;
-  disabled?: boolean;
-}) {
-  const commonInputStyle: React.CSSProperties = {
-    borderRadius: 999,
-    border: "1px solid #d1d5db",
-    padding: "6px 10px",
-    fontSize: 12,
-    backgroundColor: disabled ? "#f9fafb" : "white",
-  };
-
-  const commonTextareaStyle: React.CSSProperties = {
-    borderRadius: 10,
-    border: "1px solid #e5e7eb",
-    padding: "6px 10px",
-    fontSize: 12,
-    backgroundColor: disabled ? "#f9fafb" : "white",
-  };
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "#f9fafb",
-        display: "grid",
-        gap: 8,
-        opacity: disabled ? 0.8 : 1,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <span>Exercise setup info</span>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>
-          (name, type, objectives)
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.3fr 1fr",
-          gap: 8,
-          alignItems: "center",
-        }}
-      >
-        <input
-          placeholder="Exercise name"
-          value={exerciseDef.name}
-          onChange={(e) =>
-            !disabled && onUpdateExerciseDef({ name: e.target.value })
-          }
-          style={commonInputStyle}
-          disabled={disabled}
-        />
-        <select
-          value={exerciseDef.type}
-          onChange={(e) =>
-            !disabled &&
-            onUpdateExerciseDef({
-              type: e.target.value as ExerciseType,
-            })
-          }
-          style={commonInputStyle}
-          disabled={disabled}
-        >
-          <option value="tabletop">Tabletop</option>
-          <option value="drill">Drill</option>
-          <option value="functional">Functional</option>
-          <option value="full-scale">Full-scale</option>
-        </select>
-      </div>
-
-      <textarea
-        placeholder="Overview / scope (e.g. acute respiratory outbreak in Province X, focus on coordination between EOC, lab, comms)"
-        value={exerciseDef.overview}
-        onChange={(e) =>
-          !disabled && onUpdateExerciseDef({ overview: e.target.value })
-        }
-        rows={2}
-        style={commonTextareaStyle}
-        disabled={disabled}
-      />
-
-      <textarea
-        placeholder="Primary objectives (e.g. test case detection and reporting; assess inter-agency coordination; validate risk communication workflows)"
-        value={exerciseDef.primaryObjectives}
-        onChange={(e) =>
-          !disabled &&
-          onUpdateExerciseDef({
-            primaryObjectives: e.target.value,
-          })
-        }
-        rows={2}
-        style={commonTextareaStyle}
-        disabled={disabled}
-      />
-    </div>
-  );
-}
-
-function ScenarioStructurePanel({
-  phases,
-  onUpdatePhases,
-  disabled,
-}: {
-  phases: string[];
-  onUpdatePhases: (phases: string[]) => void;
-  disabled?: boolean;
-}) {
-  const [raw, setRaw] = useState<string>(phases.join(", "));
-
-  useEffect(() => {
-    setRaw(phases.join(", "));
-  }, [phases]);
-
-  const parsePhases = (value: string): string[] =>
-    value
-      .split(/[,;\n]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setRaw(value);
-    if (disabled) return;
-    onUpdatePhases(parsePhases(value));
-  };
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "#f9fafb",
-        display: "grid",
-        gap: 6,
-        opacity: disabled ? 0.8 : 1,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <span>Scenario structure</span>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>
-          (phases in order)
-        </span>
-      </div>
-      <textarea
-        placeholder="Phases in order (e.g. Detection, Escalation, Response)"
-        value={raw}
-        onChange={handleChange}
-        rows={2}
-        style={{
-          borderRadius: 10,
-          border: "1px solid #e5e7eb",
-          padding: "6px 10px",
-          fontSize: 12,
-          backgroundColor: disabled ? "#f9fafb" : "white",
-        }}
-        disabled={disabled}
-      />
-      {phases.length > 0 && (
-        <div style={{ fontSize: 11, color: "#4b5563" }}>
-          Current phases:{" "}
-          {phases.map((p, idx) => (
-            <span
-              key={p + idx}
-              style={{
-                display: "inline-block",
-                padding: "2px 8px",
-                borderRadius: 999,
-                border: "1px solid #d1d5db",
-                marginRight: 4,
-                marginBottom: 2,
-                background: "white",
-              }}
-            >
-              {idx + 1}. {p}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ScenarioStatePanel({
-  worldState,
-  onUpdateWorldState,
-  disabled,
-}: {
-  worldState: WorldState;
-  onUpdateWorldState: (patch: Partial<WorldState>) => void;
-  disabled?: boolean;
-}) {
-  const epiTrend = worldState.epiTrend || "stable";
-  const commsPressure =
-    typeof worldState.commsPressure === "number"
-      ? worldState.commsPressure
-      : 3;
-  const labBacklog =
-    typeof worldState.labBacklog === "number" ? worldState.labBacklog : 3;
-  const publicAnxiety =
-    typeof worldState.publicAnxiety === "number" ? worldState.publicAnxiety : 3;
-
-  const disabledStyle = disabled ? { opacity: 0.7 } : {};
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "#f9fafb",
-        display: "grid",
-        gap: 8,
-        ...disabledStyle,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <span>Scenario state</span>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>
-          (for future branching)
-        </span>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gap: 8,
-          gridTemplateColumns: "1.1fr 1fr",
-          alignItems: "center",
-        }}
-      >
-        <label style={{ fontSize: 12 }}>
-          Epidemiological trend
-          <select
-            value={epiTrend}
-            onChange={(e) =>
-              !disabled &&
-              onUpdateWorldState({
-                epiTrend: e.target.value as WorldState["epiTrend"],
-              })
-            }
-            style={{
-              marginTop: 4,
-              borderRadius: 999,
-              border: "1px solid #d1d5db",
-              padding: "4px 10px",
-              fontSize: 12,
-              width: "100%",
-              backgroundColor: disabled ? "#f9fafb" : "white",
-            }}
-            disabled={disabled}
-          >
-            <option value="stable">Stable</option>
-            <option value="worsening">Worsening</option>
-            <option value="improving">Improving</option>
-          </select>
-        </label>
-
-        <label style={{ fontSize: 12 }}>
-          Comms pressure: {commsPressure}
-          <input
-            type="range"
-            min={0}
-            max={10}
-            value={commsPressure}
-            onChange={(e) =>
-              !disabled &&
-              onUpdateWorldState({ commsPressure: Number(e.target.value) })
-            }
-            style={{ width: "100%" }}
-            disabled={disabled}
-          />
-        </label>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gap: 8,
-          gridTemplateColumns: "1fr 1fr",
-          alignItems: "center",
-          marginTop: 2,
-        }}
-      >
-        <label style={{ fontSize: 12 }}>
-          Lab backlog: {labBacklog}
-          <input
-            type="range"
-            min={0}
-            max={10}
-            value={labBacklog}
-            onChange={(e) =>
-              !disabled &&
-              onUpdateWorldState({ labBacklog: Number(e.target.value) })
-            }
-            style={{ width: "100%" }}
-            disabled={disabled}
-          />
-        </label>
-
-        <label style={{ fontSize: 12 }}>
-          Public anxiety: {publicAnxiety}
-          <input
-            type="range"
-            min={0}
-            max={10}
-            value={publicAnxiety}
-            onChange={(e) =>
-              !disabled &&
-              onUpdateWorldState({ publicAnxiety: Number(e.target.value) })
-            }
-            style={{ width: "100%" }}
-            disabled={disabled}
-          />
-        </label>
-      </div>
-    </div>
-  );
-}
-
-function TeamAckSummary({
-  summary,
-}: {
-  summary: Record<string, { total: number; ack: number }>;
-
-
-}) {
-  const teamName = (id: string) =>
-    TEAMS.find((t) => t.id === id)?.name || id;
-
-  const anyActivity = Object.values(summary).some((v) => v.total > 0);
-
-  return (
-    <div
-      style={{
-        marginBottom: 12,
-        padding: 10,
-        borderRadius: 12,
-        border: "1px solid #e5e7eb",
-        background: "#f9fafb",
-        fontSize: 12,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 13,
-          fontWeight: 600,
-          marginBottom: 4,
-        }}
-      >
-        Team acknowledgement summary
-      </div>
-      {!anyActivity ? (
-        <div style={{ fontSize: 11, color: "#6b7280" }}>
-          No sent injects yet for any team.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 4 }}>
-          {TEAMS.map((t) => {
-            const s = summary[t.id] || { total: 0, ack: 0 };
-            const ratio =
-              s.total > 0 ? `${s.ack} of ${s.total} acknowledged` : "No injects";
-            const pct =
-              s.total > 0 ? Math.round((s.ack / s.total) * 100) : 0;
-            const barWidth = s.total > 0 ? `${pct}%` : "0%";
-
-            return (
-              <div key={t.id}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 11,
-                    marginBottom: 2,
-                  }}
-                >
-                  <span style={{ fontWeight: 500 }}>{teamName(t.id)}</span>
-                  <span style={{ color: "#6b7280" }}>{ratio}</span>
-                </div>
-                <div
-                  style={{
-                    height: 4,
-                    borderRadius: 999,
-                    background: "#e5e7eb",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: barWidth,
-                      background: "#22c55e",
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
@@ -3587,260 +2797,3 @@ function ParticipantView({
   );
 }
 
-// -------- Timeline & MELT --------
-
-function Timeline({ timeline }: { timeline: TimelineEvent[] }) {
-  if (!timeline.length) {
-    return (
-      <div style={{ fontSize: 12, color: "#6b7280" }}>No events.</div>
-    );
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      {timeline.map((e) => (
-        <div
-          key={e.id}
-          style={{
-            padding: 8,
-            borderRadius: 10,
-            border: "1px solid #e5e7eb",
-            background: backgroundForEvent(e.type),
-          }}
-        >
-          <div style={{ fontSize: 11, color: "#6b7280" }}>
-            {new Date(e.ts).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </div>
-          <div style={{ fontWeight: 500, fontSize: 13 }}>
-            {labelForEvent(e)}
-          </div>
-          {(e.objectives?.length || e.capabilities?.length) && (
-            <div
-              style={{
-                marginTop: 2,
-                fontSize: 11,
-                color: "#4b5563",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {e.objectives?.length
-                ? `Obj: ${e.objectives.join("; ")}`
-                : ""}
-              {e.objectives?.length && e.capabilities?.length ? " • " : ""}
-              {e.capabilities?.length
-                ? `Cap: ${e.capabilities.join("; ")}`
-                : ""}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MeltTable({
-  rows,
-  onSelectInject,
-}: {
-  rows: MeltRow[];
-  onSelectInject?: (injectId: string) => void;
-}) {
-  if (!rows.length) {
-    return (
-      <div style={{ fontSize: 12, color: "#6b7280" }}>
-        No injects yet to show in MELT.
-      </div>
-    );
-  }
-
-  const ratingShortLabel = (r?: EvaluationRating) => {
-    if (!r) return "—";
-    if (r === "not_observed") return "Not observed";
-    if (r === "partially") return "Partially";
-    if (r === "achieved") return "Achieved";
-    if (r === "exceeded") return "Exceeded";
-    return "—";
-  };
-
-  const ackCell = (ackCount?: number, totalTargets?: number) => {
-    if (
-      typeof totalTargets !== "number" ||
-      totalTargets <= 0 ||
-      typeof ackCount !== "number"
-    ) {
-      return "—";
-    }
-    if (ackCount <= 0) {
-      return "🔘 None";
-    }
-    if (ackCount < totalTargets) {
-      return `🟡 ${ackCount}/${totalTargets} teams`;
-    }
-    // ackCount === totalTargets
-    if (totalTargets === 1) {
-      return "🟢 Acknowledged";
-    }
-    return `🟢 All (${ackCount}/${totalTargets})`;
-  };
-
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        borderRadius: 10,
-        border: "1px solid #e5e7eb",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns:
-            "0.9fr 1.3fr 0.9fr 1.2fr 0.7fr 1.2fr 1.1fr",
-          fontWeight: 600,
-          background: "#f9fafb",
-          padding: "6px 8px",
-          borderBottom: "1px solid #e5e7eb",
-        }}
-      >
-        <div>When</div>
-        <div>Inject</div>
-        <div>Phase</div>
-        <div>Targets</div>
-        <div>Status</div>
-        <div>Acknowledgements</div>
-        <div>Evaluation</div>
-      </div>
-      <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-        {rows.map((r) => (
-          <div
-            key={r.id}
-            onClick={() => onSelectInject && onSelectInject(r.injectId)}
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "0.9fr 1.3fr 0.9fr 1.2fr 0.7fr 1.2fr 1.1fr",
-              padding: "6px 8px",
-              borderBottom: "1px solid #f3f4f6",
-              cursor: onSelectInject ? "pointer" : "default",
-            }}
-          >
-            <div style={{ whiteSpace: "nowrap" }}>{r.whenLabel}</div>
-            <div style={{ paddingRight: 6 }}>
-              <div style={{ fontWeight: 500 }}>{r.title}</div>
-              {(r.objectives?.length || r.capabilities?.length) && (
-                <div
-                  style={{
-                    marginTop: 2,
-                    color: "#4b5563",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {r.objectives?.length
-                    ? `Obj: ${r.objectives.join("; ")}`
-                    : ""}
-                  {r.objectives?.length && r.capabilities?.length ? " • " : ""}
-                  {r.capabilities?.length
-                    ? `Cap: ${r.capabilities.join("; ")}`
-                    : ""}
-                </div>
-              )}
-            </div>
-            <div style={{ paddingRight: 6 }}>
-              {r.phase ? r.phase : "—"}
-            </div>
-            <div style={{ paddingRight: 6 }}>{r.targets}</div>
-            <div style={{ textTransform: "capitalize" }}>{r.status}</div>
-            <div>{ackCell(r.ackCount, r.totalTargets)}</div>
-            <div>{ratingShortLabel(r.evaluationRating)}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// -------- Timeline helpers --------
-
-function backgroundForEvent(type: string) {
-  if (type === "inject.sent" || type === "inject.sent.group") return "#eff6ff";
-  if (type === "inject.queued" || type === "inject.queued.group")
-    return "#eef2ff";
-  if (type === "inject.recalled") return "#fffbeb";
-  if (type === "exercise.started") return "#e0f2fe";
-  if (type === "exercise.ended") return "#fee2e2";
-  if (type === "exercise.paused") return "#fef3c7";
-  if (type === "exercise.resumed") return "#dcfce7";
-  if (type === "inject.acknowledged") return "#ecfdf5";
-  return "white";
-}
-
-function formatRecipientsList(recips: string[] | undefined, allFlag?: boolean) {
-  if (!recips || recips.length === 0) return "";
-  const names = recips
-    .map((id) => TEAMS.find((t) => t.id === id)?.name || id)
-    .join(", ");
-  if (allFlag && recips.length === TEAMS.length) {
-    return "All teams";
-  }
-  return names;
-}
-
-function labelForEvent(e: TimelineEvent) {
-  const teamName = (id?: string) =>
-    TEAMS.find((t) => t.id === id)?.name || id;
-
-  if (e.type === "inject.queued.group") {
-    const tgt = e.recipients
-      ? formatRecipientsList(e.recipients, e.all)
-      : "Multiple teams";
-    const when = e.scheduledAt
-      ? new Date(e.scheduledAt).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-    return `Inject scheduled: ${e.title} → ${tgt}${
-      when ? ` (fires at ${when})` : ""
-    }`;
-  }
-
-  if (e.type === "inject.queued") {
-    const when = e.scheduledAt
-      ? new Date(e.scheduledAt).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-    return `Inject scheduled: ${e.title} → ${teamName(e.teamId)}${
-      when ? ` (fires at ${when})` : ""
-    }`;
-  }
-
-  if (e.type === "inject.sent.group") {
-    const tgt = e.recipients
-      ? formatRecipientsList(e.recipients, e.all)
-      : "Multiple teams";
-    return `Inject sent: ${e.title} → ${tgt}`;
-  }
-
-  if (e.type === "inject.sent") {
-    return `Inject sent: ${e.title} → ${teamName(e.teamId)}`;
-  }
-
-  if (e.type === "inject.recalled") return "Inject recalled";
-  if (e.type === "exercise.started") return "Exercise started";
-  if (e.type === "exercise.ended") return "Exercise ended";
-  if (e.type === "exercise.paused") return "Exercise paused";
-  if (e.type === "exercise.resumed") return "Exercise resumed";
-
-  if (e.type === "inject.acknowledged") {
-    const actor = e.actorName || teamName(e.teamId);
-    return `Inject acknowledged: ${e.title} (${actor})`;
-  }
-
-  return e.type;
-}
