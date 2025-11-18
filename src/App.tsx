@@ -31,6 +31,7 @@ import {
   loadState,
   saveState,
 } from "./persistence/simExerciserStorage";
+} from "./types";
 
 // SimExerciser MVP (single-file, StackBlitz-friendly)
 // Features:
@@ -56,7 +57,62 @@ import {
 
 // ---------- Constants ----------
 
+type PersistedState = {
+  injects: Inject[];
+  inboxes: Record<string, Inject[]>;
+  timeline: TimelineEvent[];
+  paused: boolean;
+  participantTeamId: string;
+  participantTimelineMode: "team" | "global" | "hidden";
+  participantName?: string;
+  participantRole?: string;
+  participantLocked?: boolean;
+  worldState?: WorldState;
+  participantActions?: ParticipantAction[];
+  exerciseDef?: ExerciseDefinition;
+  exerciseStatus?: ExerciseStatus;
+  exerciseStartAt?: string;
+  exerciseEndAt?: string;
+  exercisePhases?: string[];
+};
+
+// ---------- Constants ----------
+
+const STORAGE_KEY = "simexit_mvp_state_v1";
+
+const DEFAULT_WORLD_STATE: WorldState = {
+  epiTrend: "stable",
+  commsPressure: 2,
+  labBacklog: 1,
+  publicAnxiety: 2,
+};
+
+const TEAMS: Team[] = [
+  { id: "team_eoc", name: "EOC" },
+  { id: "team_lab", name: "Lab" },
+  { id: "team_comm", name: "Comms" },
+  { id: "team_field", name: "Field" },
+];
+
+const DEFAULT_EXERCISE: ExerciseDefinition = {
+  name: "Untitled exercise",
+  type: "tabletop",
+  overview: "",
+  primaryObjectives: "",
+};
+
+const DEFAULT_PHASES = ["Phase 1", "Phase 2", "Phase 3"];
+
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+const buildEmptyInboxes = (): Record<string, Inject[]> =>
+  Object.fromEntries(TEAMS.map((t) => [t.id, []]));
+
+const parsePhases = (value: string): string[] =>
+  value
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 // ---------- Root Component ----------
 
@@ -144,6 +200,12 @@ export default function App() {
     } else {
       setInboxes(emptyInboxes);
     }
+      const emptyInboxes = buildEmptyInboxes();
+      if (data.inboxes && typeof data.inboxes === "object") {
+        setInboxes({ ...emptyInboxes, ...data.inboxes });
+      } else {
+        setInboxes(emptyInboxes);
+      }
 
     if (Array.isArray(data.timeline)) {
       setTimeline(data.timeline);
@@ -267,6 +329,7 @@ export default function App() {
   const handleResetState = () => {
     if (!confirm("Reset the exercise and clear all local data?")) return;
     clearState();
+    localStorage.removeItem(STORAGE_KEY);
     setInjects([]);
     setInboxes(buildEmptyInboxes());
     setTimeline([]);
@@ -689,6 +752,134 @@ export default function App() {
           exerciseStatus={exerciseStatus}
         />
       )}
+    </div>
+  );
+}
+
+// ---------- UI Components ----------
+
+function TopBar({
+  view,
+  setView,
+  exerciseDef,
+  exerciseStatus,
+  onReset,
+}: {
+  view: "fac" | "part";
+  setView: (v: "fac" | "part") => void;
+  exerciseDef: ExerciseDefinition;
+  exerciseStatus: ExerciseStatus;
+  onReset: () => void;
+}) {
+  const exerciseTypeLabel = {
+    tabletop: "Tabletop",
+    drill: "Drill",
+    functional: "Functional",
+    "full-scale": "Full-scale",
+  }[exerciseDef.type];
+
+  const statusLabel =
+    exerciseStatus === "draft"
+      ? "Draft"
+      : exerciseStatus === "live"
+      ? "Live"
+      : "Ended";
+
+  const statusColor =
+    exerciseStatus === "draft"
+      ? "#e5e7eb"
+      : exerciseStatus === "live"
+      ? "#bbf7d0"
+      : "#fecaca";
+
+  const statusTextColor =
+    exerciseStatus === "draft"
+      ? "#374151"
+      : exerciseStatus === "live"
+      ? "#166534"
+      : "#991b1b";
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 8,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 600 }}>SimExerciser</div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginTop: 2,
+          }}
+        >
+          <span>{exerciseDef.name || "Untitled exercise"}</span>
+          <span>· {exerciseTypeLabel}</span>
+          <span
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: statusColor,
+              color: statusTextColor,
+              fontSize: 10,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {statusLabel}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          onClick={onReset}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #d1d5db",
+            background: "white",
+            color: "#b91c1c",
+            fontWeight: 600,
+          }}
+        >
+          Reset state
+        </button>
+
+        <button
+          onClick={() => setView("fac")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "1px solid #d1d5db",
+            background: view === "fac" ? "#111827" : "white",
+            color: view === "fac" ? "white" : "#111827",
+          }}
+        >
+          Facilitator
+        </button>
+        <button
+          onClick={() => setView("part")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "1px solid #d1d5db",
+            background: view === "part" ? "#111827" : "white",
+            color: view === "part" ? "white" : "#111827",
+          }}
+        >
+          Participant
+        </button>
+      </div>
     </div>
   );
 }
