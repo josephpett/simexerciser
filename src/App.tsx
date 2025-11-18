@@ -703,7 +703,7 @@ export default function App() {
       />
 
       {view === "fac" && (
-        <FacilitatorView
+        <FacilitatorViewComponent
           paused={paused}
           onPause={handlePause}
           onResume={handleResume}
@@ -730,11 +730,12 @@ export default function App() {
           onUpdateInject={updateInject}
           exercisePhases={exercisePhases}
           onUpdateExercisePhases={setExercisePhases}
+          onSelectInject={setSelectedInjectId}
         />
       )}
 
       {view === "part" && (
-        <ParticipantView
+        <ParticipantViewComponent
           teamId={participantTeamId}
           setTeamId={setParticipantTeamId}
           inbox={participantInbox}
