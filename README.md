@@ -6,6 +6,7 @@ An interactive facilitator/participant simulator prototype built with React and 
 - `src/App.tsx` holds the full facilitator/participant experience in a single file. It includes the inject timeline, participant inboxes, MELT table view, acknowledgement tracking, world-state panel, exercise lifecycle controls, recall logic, per-inject evaluation, and the new scenario phase assignment surfaced in MELT and detail views.
 - `src/index.tsx` mounts the `App` component into the Vite entry point.
 - `vite.config.ts`, `tsconfig*.json`, and `index.html` provide the minimal tooling to run the single-file prototype locally.
+- A "Reset state" button in the app header clears all locally persisted data so you can restart a scenario quickly.
 
 ## Getting started
 
