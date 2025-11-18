@@ -163,6 +163,12 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const buildEmptyInboxes = (): Record<string, Inject[]> =>
   Object.fromEntries(TEAMS.map((t) => [t.id, []]));
 
+const parsePhases = (value: string): string[] =>
+  value
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
 // ---------- Root Component ----------
 
 export default function App() {
@@ -1769,14 +1775,15 @@ function ScenarioStructurePanel({
   const [raw, setRaw] = useState<string>(phases.join(", "));
 
   useEffect(() => {
-    setRaw(phases.join(", "));
+    // Only sync the textarea when the upstream phases actually change.
+    // This avoids wiping in-progress typing (e.g., after entering a comma
+    // or space) while still reflecting external resets/loads.
+    const parsedRaw = parsePhases(raw);
+    const parsedPhases = parsePhases(phases.join(", "));
+    if (parsedRaw.join("|") !== parsedPhases.join("|")) {
+      setRaw(phases.join(", "));
+    }
   }, [phases]);
-
-  const parsePhases = (value: string): string[] =>
-    value
-      .split(/[,;\n]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
