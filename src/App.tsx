@@ -18,25 +18,20 @@ import {
   DEFAULT_EXERCISE,
   DEFAULT_PHASES,
   DEFAULT_WORLD_STATE,
+  STORAGE_KEY,
   TEAMS,
   buildEmptyInboxes,
+  parsePhases,
 } from "./constants";
 import TopBar from "./components/TopBar";
 import Timeline from "./components/Timeline";
 import MeltTable from "./components/MeltTable";
-import ExerciseDefinitionPanel from "./components/ExerciseDefinitionPanel";
-import ScenarioStructurePanel from "./components/ScenarioStructurePanel";
-import ScenarioStatePanel from "./components/ScenarioStatePanel";
-import TeamAckSummary from "./components/TeamAckSummary";
-import {
-  ExerciseStatusControls,
-  PauseControls,
-} from "./components/ExerciseStatusControls";
 import {
   clearState,
   loadState,
   saveState,
 } from "./persistence/simExerciserStorage";
+} from "./types";
 
 // SimExerciser MVP (single-file, StackBlitz-friendly)
 // Features:
@@ -62,7 +57,62 @@ import {
 
 // ---------- Constants ----------
 
+type PersistedState = {
+  injects: Inject[];
+  inboxes: Record<string, Inject[]>;
+  timeline: TimelineEvent[];
+  paused: boolean;
+  participantTeamId: string;
+  participantTimelineMode: "team" | "global" | "hidden";
+  participantName?: string;
+  participantRole?: string;
+  participantLocked?: boolean;
+  worldState?: WorldState;
+  participantActions?: ParticipantAction[];
+  exerciseDef?: ExerciseDefinition;
+  exerciseStatus?: ExerciseStatus;
+  exerciseStartAt?: string;
+  exerciseEndAt?: string;
+  exercisePhases?: string[];
+};
+
+// ---------- Constants ----------
+
+const STORAGE_KEY = "simexit_mvp_state_v1";
+
+const DEFAULT_WORLD_STATE: WorldState = {
+  epiTrend: "stable",
+  commsPressure: 2,
+  labBacklog: 1,
+  publicAnxiety: 2,
+};
+
+const TEAMS: Team[] = [
+  { id: "team_eoc", name: "EOC" },
+  { id: "team_lab", name: "Lab" },
+  { id: "team_comm", name: "Comms" },
+  { id: "team_field", name: "Field" },
+];
+
+const DEFAULT_EXERCISE: ExerciseDefinition = {
+  name: "Untitled exercise",
+  type: "tabletop",
+  overview: "",
+  primaryObjectives: "",
+};
+
+const DEFAULT_PHASES = ["Phase 1", "Phase 2", "Phase 3"];
+
 const uid = () => Math.random().toString(36).slice(2, 9);
+
+const buildEmptyInboxes = (): Record<string, Inject[]> =>
+  Object.fromEntries(TEAMS.map((t) => [t.id, []]));
+
+const parsePhases = (value: string): string[] =>
+  value
+    .split(/[,;\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 // ---------- Root Component ----------
 
@@ -150,6 +200,12 @@ export default function App() {
     } else {
       setInboxes(emptyInboxes);
     }
+      const emptyInboxes = buildEmptyInboxes();
+      if (data.inboxes && typeof data.inboxes === "object") {
+        setInboxes({ ...emptyInboxes, ...data.inboxes });
+      } else {
+        setInboxes(emptyInboxes);
+      }
 
     if (Array.isArray(data.timeline)) {
       setTimeline(data.timeline);
@@ -273,6 +329,7 @@ export default function App() {
   const handleResetState = () => {
     if (!confirm("Reset the exercise and clear all local data?")) return;
     clearState();
+    localStorage.removeItem(STORAGE_KEY);
     setInjects([]);
     setInboxes(buildEmptyInboxes());
     setTimeline([]);
@@ -699,6 +756,134 @@ export default function App() {
   );
 }
 
+// ---------- UI Components ----------
+
+function TopBar({
+  view,
+  setView,
+  exerciseDef,
+  exerciseStatus,
+  onReset,
+}: {
+  view: "fac" | "part";
+  setView: (v: "fac" | "part") => void;
+  exerciseDef: ExerciseDefinition;
+  exerciseStatus: ExerciseStatus;
+  onReset: () => void;
+}) {
+  const exerciseTypeLabel = {
+    tabletop: "Tabletop",
+    drill: "Drill",
+    functional: "Functional",
+    "full-scale": "Full-scale",
+  }[exerciseDef.type];
+
+  const statusLabel =
+    exerciseStatus === "draft"
+      ? "Draft"
+      : exerciseStatus === "live"
+      ? "Live"
+      : "Ended";
+
+  const statusColor =
+    exerciseStatus === "draft"
+      ? "#e5e7eb"
+      : exerciseStatus === "live"
+      ? "#bbf7d0"
+      : "#fecaca";
+
+  const statusTextColor =
+    exerciseStatus === "draft"
+      ? "#374151"
+      : exerciseStatus === "live"
+      ? "#166534"
+      : "#991b1b";
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 8,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 600 }}>SimExerciser</div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#6b7280",
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginTop: 2,
+          }}
+        >
+          <span>{exerciseDef.name || "Untitled exercise"}</span>
+          <span>· {exerciseTypeLabel}</span>
+          <span
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: statusColor,
+              color: statusTextColor,
+              fontSize: 10,
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {statusLabel}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          onClick={onReset}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #d1d5db",
+            background: "white",
+            color: "#b91c1c",
+            fontWeight: 600,
+          }}
+        >
+          Reset state
+        </button>
+
+        <button
+          onClick={() => setView("fac")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "1px solid #d1d5db",
+            background: view === "fac" ? "#111827" : "white",
+            color: view === "fac" ? "white" : "#111827",
+          }}
+        >
+          Facilitator
+        </button>
+        <button
+          onClick={() => setView("part")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "1px solid #d1d5db",
+            background: view === "part" ? "#111827" : "white",
+            color: view === "part" ? "white" : "#111827",
+          }}
+        >
+          Participant
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FacilitatorView({
   paused,
   onPause,
@@ -1102,6 +1287,687 @@ function FacilitatorView({
       </div>
 
       {/* Right column: details + Timeline / MELT */}
+      <div
+        style={{
+          background: "white",
+          padding: 16,
+          borderRadius: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          maxHeight: "75vh",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        {/* Inject details panel */}
+        <InjectDetailsPanel
+          selectedInject={selectedInject}
+          groupMembers={selectedGroupMembers}
+          participantActions={participantActions}
+          worldState={worldState}
+          onClose={() => setSelectedInjectId(null)}
+          onUpdateInject={onUpdateInject}
+        />
+
+        {/* Tabs + filters + content */}
+        <div
+          style={{
+            marginTop: 4,
+            marginBottom: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={() => setRightTab("timeline")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                background:
+                  rightTab === "timeline" ? "#111827" : "transparent",
+                color: rightTab === "timeline" ? "white" : "#111827",
+              }}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setRightTab("melt")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                background: rightTab === "melt" ? "#111827" : "transparent",
+                color: rightTab === "melt" ? "white" : "#111827",
+              }}
+            >
+              MELT
+            </button>
+          </div>
+
+          {rightTab === "timeline" && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                fontSize: 11,
+                alignItems: "center",
+              }}
+            >
+              <select
+                value={filterTeam}
+                onChange={(e) => setFilterTeam(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                }}
+              >
+                <option value="all">All teams</option>
+                {TEAMS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                }}
+              >
+                <option value="all">All events</option>
+                <option value="injects">Injects</option>
+                <option value="exercise">Exercise state</option>
+                <option value="actions">Acknowledgements</option>
+              </select>
+
+              <input
+                placeholder="Filter text (title/obj/cap/actor)"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                  minWidth: 140,
+                }}
+              />
+            </div>
+          )}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {rightTab === "timeline" ? (
+            <Timeline timeline={filteredTimeline} />
+          ) : (
+            <MeltTable
+              rows={meltRows}
+              onSelectInject={(id) => setSelectedInjectId(id)}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExerciseStatusControls({
+  exerciseStatus,
+  exerciseStartAt,
+  exerciseEndAt,
+  onStartExercise,
+  onEndExercise,
+}: {
+  exerciseStatus: ExerciseStatus;
+  exerciseStartAt?: string;
+  exerciseEndAt?: string;
+  onStartExercise: () => void;
+  onEndExercise: () => void;
+}) {
+  const startLabel = exerciseStartAt
+    ? new Date(exerciseStartAt).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  const endLabel = exerciseEndAt
+    ? new Date(exerciseEndAt).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: "#f9fafb",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ fontSize: 13 }}>
+        <div style={{ fontWeight: 600 }}>Exercise lifecycle</div>
+        <div style={{ fontSize: 11, color: "#6b7280" }}>
+          {exerciseStatus === "draft" && "Configure setup, then start exercise."}
+          {exerciseStatus === "live" &&
+            `Running${startLabel ? ` since ${startLabel}` : ""}.`}
+          {exerciseStatus === "ended" &&
+            `Ended${endLabel ? ` at ${endLabel}` : ""}.`}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {exerciseStatus === "draft" && (
+          <button
+            type="button"
+            onClick={onStartExercise}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "none",
+              background: "#16a34a",
+              color: "white",
+              fontSize: 12,
+            }}
+          >
+            Start exercise
+          </button>
+        )}
+        {exerciseStatus === "live" && (
+          <button
+            type="button"
+            onClick={onEndExercise}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 999,
+              border: "none",
+              background: "#b91c1c",
+              color: "white",
+              fontSize: 12,
+            }}
+          >
+            End exercise
+          </button>
+        )}
+        {exerciseStatus === "ended" && (
+          <span
+            style={{
+              fontSize: 11,
+              padding: "2px 8px",
+              borderRadius: 999,
+              border: "1px solid #e5e7eb",
+              color: "#6b7280",
+            }}
+          >
+            Exercise ended
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PauseControls({
+  paused,
+  onPause,
+  onResume,
+  exerciseStatus,
+}: {
+  paused: boolean;
+  onPause: () => void;
+  onResume: () => void;
+  exerciseStatus: ExerciseStatus;
+}) {
+  const controlsDisabled = exerciseStatus !== "live";
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        opacity: controlsDisabled ? 0.5 : 1,
+      }}
+    >
+      {paused ? (
+        <button
+          onClick={onResume}
+          disabled={controlsDisabled}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "none",
+            background: controlsDisabled ? "#9ca3af" : "#059669",
+            color: "white",
+          }}
+        >
+          Resume
+        </button>
+      ) : (
+        <button
+          onClick={onPause}
+          disabled={controlsDisabled}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "none",
+            background: controlsDisabled ? "#9ca3af" : "#d97706",
+            color: "white",
+          }}
+        >
+          Pause
+        </button>
+      )}
+      {controlsDisabled && (
+        <span style={{ fontSize: 11, color: "#6b7280" }}>
+          Pause/resume available when exercise is live.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ExerciseDefinitionPanel({
+  exerciseDef,
+  onUpdateExerciseDef,
+  disabled,
+}: {
+  exerciseDef: ExerciseDefinition;
+  onUpdateExerciseDef: (patch: Partial<ExerciseDefinition>) => void;
+  disabled?: boolean;
+}) {
+  const commonInputStyle: React.CSSProperties = {
+    borderRadius: 999,
+    border: "1px solid #d1d5db",
+    padding: "6px 10px",
+    fontSize: 12,
+    backgroundColor: disabled ? "#f9fafb" : "white",
+  };
+
+  const commonTextareaStyle: React.CSSProperties = {
+    borderRadius: 10,
+    border: "1px solid #e5e7eb",
+    padding: "6px 10px",
+    fontSize: 12,
+    backgroundColor: disabled ? "#f9fafb" : "white",
+  };
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: "#f9fafb",
+        display: "grid",
+        gap: 8,
+        opacity: disabled ? 0.8 : 1,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span>Exercise setup info</span>
+        <span style={{ fontSize: 11, color: "#6b7280" }}>
+          (name, type, objectives)
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.3fr 1fr",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <input
+          placeholder="Exercise name"
+          value={exerciseDef.name}
+          onChange={(e) =>
+            !disabled && onUpdateExerciseDef({ name: e.target.value })
+          }
+          style={commonInputStyle}
+          disabled={disabled}
+        />
+        <select
+          value={exerciseDef.type}
+          onChange={(e) =>
+            !disabled &&
+            onUpdateExerciseDef({
+              type: e.target.value as ExerciseType,
+            })
+          }
+          style={commonInputStyle}
+          disabled={disabled}
+        >
+          <option value="tabletop">Tabletop</option>
+          <option value="drill">Drill</option>
+          <option value="functional">Functional</option>
+          <option value="full-scale">Full-scale</option>
+        </select>
+      </div>
+
+      <textarea
+        placeholder="Overview / scope (e.g. acute respiratory outbreak in Province X, focus on coordination between EOC, lab, comms)"
+        value={exerciseDef.overview}
+        onChange={(e) =>
+          !disabled && onUpdateExerciseDef({ overview: e.target.value })
+        }
+        rows={2}
+        style={commonTextareaStyle}
+        disabled={disabled}
+      />
+
+      <textarea
+        placeholder="Primary objectives (e.g. test case detection and reporting; assess inter-agency coordination; validate risk communication workflows)"
+        value={exerciseDef.primaryObjectives}
+        onChange={(e) =>
+          !disabled &&
+          onUpdateExerciseDef({
+            primaryObjectives: e.target.value,
+          })
+        }
+        rows={2}
+        style={commonTextareaStyle}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
+
+function ScenarioStructurePanel({
+  phases,
+  onUpdatePhases,
+  disabled,
+}: {
+  phases: string[];
+  onUpdatePhases: (phases: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [raw, setRaw] = useState<string>(phases.join(", "));
+
+  useEffect(() => {
+    // Only sync the textarea when the upstream phases actually change.
+    // This avoids wiping in-progress typing (e.g., after entering a comma
+    // or space) while still reflecting external resets/loads.
+    const parsedRaw = parsePhases(raw);
+    const parsedPhases = parsePhases(phases.join(", "));
+    if (parsedRaw.join("|") !== parsedPhases.join("|")) {
+      setRaw(phases.join(", "));
+    }
+  }, [phases]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setRaw(value);
+    if (disabled) return;
+    onUpdatePhases(parsePhases(value));
+  };
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: "#f9fafb",
+        display: "grid",
+        gap: 6,
+        opacity: disabled ? 0.8 : 1,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span>Scenario structure</span>
+        <span style={{ fontSize: 11, color: "#6b7280" }}>
+          (phases in order)
+        </span>
+      </div>
+      <textarea
+        placeholder="Phases in order (e.g. Detection, Escalation, Response)"
+        value={raw}
+        onChange={handleChange}
+        rows={2}
+        style={{
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          padding: "6px 10px",
+          fontSize: 12,
+          backgroundColor: disabled ? "#f9fafb" : "white",
+        }}
+        disabled={disabled}
+      />
+      {phases.length > 0 && (
+        <div style={{ fontSize: 11, color: "#4b5563" }}>
+          Current phases:{" "}
+          {phases.map((p, idx) => (
+            <span
+              key={p + idx}
+              style={{
+                display: "inline-block",
+                padding: "2px 8px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                marginRight: 4,
+                marginBottom: 2,
+                background: "white",
+              }}
+            >
+              {idx + 1}. {p}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScenarioStatePanel({
+  worldState,
+  onUpdateWorldState,
+  disabled,
+}: {
+  worldState: WorldState;
+  onUpdateWorldState: (patch: Partial<WorldState>) => void;
+  disabled?: boolean;
+}) {
+  const epiTrend = worldState.epiTrend || "stable";
+  const commsPressure =
+    typeof worldState.commsPressure === "number"
+      ? worldState.commsPressure
+      : 3;
+  const labBacklog =
+    typeof worldState.labBacklog === "number" ? worldState.labBacklog : 3;
+  const publicAnxiety =
+    typeof worldState.publicAnxiety === "number" ? worldState.publicAnxiety : 3;
+
+  const disabledStyle = disabled ? { opacity: 0.7 } : {};
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: "#f9fafb",
+        display: "grid",
+        gap: 8,
+        ...disabledStyle,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span>Scenario state</span>
+        <span style={{ fontSize: 11, color: "#6b7280" }}>
+          (for future branching)
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "1.1fr 1fr",
+          alignItems: "center",
+        }}
+      >
+        <label style={{ fontSize: 12 }}>
+          Epidemiological trend
+          <select
+            value={epiTrend}
+            onChange={(e) =>
+              !disabled &&
+              onUpdateWorldState({
+                epiTrend: e.target.value as WorldState["epiTrend"],
+              })
+            }
+            style={{
+              marginTop: 4,
+              borderRadius: 999,
+              border: "1px solid #d1d5db",
+              padding: "4px 10px",
+              fontSize: 12,
+              width: "100%",
+              backgroundColor: disabled ? "#f9fafb" : "white",
+            }}
+            disabled={disabled}
+          >
+            <option value="stable">Stable</option>
+            <option value="worsening">Worsening</option>
+            <option value="improving">Improving</option>
+          </select>
+        </label>
+
+        <label style={{ fontSize: 12 }}>
+          Comms pressure: {commsPressure}
+          <input
+            type="range"
+            min={0}
+            max={10}
+            value={commsPressure}
+            onChange={(e) =>
+              !disabled &&
+              onUpdateWorldState({ commsPressure: Number(e.target.value) })
+            }
+            style={{ width: "100%" }}
+            disabled={disabled}
+          />
+        </label>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          gridTemplateColumns: "1fr 1fr",
+          alignItems: "center",
+          marginTop: 2,
+        }}
+      >
+        <label style={{ fontSize: 12 }}>
+          Lab backlog: {labBacklog}
+          <input
+            type="range"
+            min={0}
+            max={10}
+            value={labBacklog}
+            onChange={(e) =>
+              !disabled &&
+              onUpdateWorldState({ labBacklog: Number(e.target.value) })
+            }
+            style={{ width: "100%" }}
+            disabled={disabled}
+          />
+        </label>
+
+        <label style={{ fontSize: 12 }}>
+          Public anxiety: {publicAnxiety}
+          <input
+            type="range"
+            min={0}
+            max={10}
+            value={publicAnxiety}
+            onChange={(e) =>
+              !disabled &&
+              onUpdateWorldState({ publicAnxiety: Number(e.target.value) })
+            }
+            style={{ width: "100%" }}
+            disabled={disabled}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function TeamAckSummary({
+  summary,
+}: {
+  summary: Record<string, { total: number; ack: number }>;
+
+
+}) {
+  const teamName = (id: string) =>
+    TEAMS.find((t) => t.id === id)?.name || id;
+
+  const anyActivity = Object.values(summary).some((v) => v.total > 0);
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: 10,
+        borderRadius: 12,
+        border: "1px solid #e5e7eb",
+        background: "#f9fafb",
+        fontSize: 12,
+      }}
+    >
       <div
         style={{
           background: "white",
