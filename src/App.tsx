@@ -1,4 +1,18 @@
 import React, { useState, useMemo, useEffect } from "react";
+import {
+  ExerciseDefinition,
+  ExerciseStatus,
+  ExerciseType,
+  Inject,
+  InjectStatus,
+  EvaluationRating,
+  MeltRow,
+  ParticipantAction,
+  ParticipantActionType,
+  Team,
+  TimelineEvent,
+  WorldState,
+} from "./types";
 
 // SimExerciser MVP (single-file, StackBlitz-friendly)
 // Features:
@@ -22,79 +36,6 @@ import React, { useState, useMemo, useEffect } from "react";
 // - Per-inject evaluation rating + notes stored on injects and surfaced in details + MELT
 // - NEW: Scenario structure panel (phases list) + per-inject phase assignment surfaced in MELT & details
 
-// ---------- Types ----------
-
-type Team = { id: string; name: string };
-
-type InjectStatus = "queued" | "sent" | "recalled";
-
-type EvaluationRating = "not_observed" | "partially" | "achieved" | "exceeded";
-
-type Inject = {
-  id: string;
-  groupId?: string;
-  title: string;
-  body: string;
-  teamId: string;
-  status: InjectStatus;
-  ts: string; // created or last status change time
-  all?: boolean;
-  groupMaster?: boolean;
-  recipients?: string[];
-  scheduledFor?: string; // ISO datetime for scheduled injects
-  objectives?: string[];
-  capabilities?: string[];
-  evaluationRating?: EvaluationRating;
-  evaluationNotes?: string;
-  phase?: string;
-};
-
-type TimelineEvent = {
-  id: string;
-  ts: string;
-  type: string;
-  title?: string;
-  teamId?: string;
-  recipients?: string[];
-  all?: boolean;
-  scheduledAt?: string;
-  injectId?: string;
-  actorName?: string;
-  actionType?: string;
-  objectives?: string[];
-  capabilities?: string[];
-};
-
-type ParticipantActionType = "acknowledged";
-
-type ParticipantAction = {
-  id: string;
-  ts: string;
-  injectId: string;
-  teamId: string;
-  actorName?: string;
-  type: ParticipantActionType;
-};
-
-type WorldState = {
-  epiTrend?: "stable" | "worsening" | "improving";
-  commsPressure?: number;
-  labBacklog?: number;
-  publicAnxiety?: number;
-  [key: string]: any;
-};
-
-type ExerciseType = "tabletop" | "drill" | "functional" | "full-scale";
-
-type ExerciseDefinition = {
-  name: string;
-  type: ExerciseType;
-  overview: string;
-  primaryObjectives: string;
-};
-
-type ExerciseStatus = "draft" | "live" | "ended";
-
 type PersistedState = {
   injects: Inject[];
   inboxes: Record<string, Inject[]>;
@@ -112,23 +53,6 @@ type PersistedState = {
   exerciseStartAt?: string;
   exerciseEndAt?: string;
   exercisePhases?: string[];
-};
-
-// For MELT rows
-type MeltRow = {
-  id: string; // display key (groupId or injectId)
-  injectId: string; // primary inject id to anchor selection/details
-  whenLabel: string;
-  whenMs: number;
-  title: string;
-  targets: string;
-  status: InjectStatus;
-  objectives?: string[];
-  capabilities?: string[];
-  ackCount?: number;
-  totalTargets?: number;
-  evaluationRating?: EvaluationRating;
-  phase?: string;
 };
 
 // ---------- Constants ----------
