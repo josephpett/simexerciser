@@ -1970,61 +1970,137 @@ function TeamAckSummary({
     >
       <div
         style={{
-          fontSize: 13,
-          fontWeight: 600,
-          marginBottom: 4,
+          background: "white",
+          padding: 16,
+          borderRadius: 16,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+          maxHeight: "75vh",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        Team acknowledgement summary
-      </div>
-      {!anyActivity ? (
-        <div style={{ fontSize: 11, color: "#6b7280" }}>
-          No sent injects yet for any team.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 4 }}>
-          {TEAMS.map((t) => {
-            const s = summary[t.id] || { total: 0, ack: 0 };
-            const ratio =
-              s.total > 0 ? `${s.ack} of ${s.total} acknowledged` : "No injects";
-            const pct =
-              s.total > 0 ? Math.round((s.ack / s.total) * 100) : 0;
-            const barWidth = s.total > 0 ? `${pct}%` : "0%";
+        {/* Inject details panel */}
+        <InjectDetailsPanel
+          selectedInject={selectedInject}
+          groupMembers={selectedGroupMembers}
+          participantActions={participantActions}
+          worldState={worldState}
+          onClose={() => setSelectedInjectId(null)}
+          onUpdateInject={onUpdateInject}
+        />
 
-            return (
-              <div key={t.id}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 11,
-                    marginBottom: 2,
-                  }}
-                >
-                  <span style={{ fontWeight: 500 }}>{teamName(t.id)}</span>
-                  <span style={{ color: "#6b7280" }}>{ratio}</span>
-                </div>
-                <div
-                  style={{
-                    height: 4,
-                    borderRadius: 999,
-                    background: "#e5e7eb",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: barWidth,
-                      background: "#22c55e",
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        {/* Tabs + filters + content */}
+        <div
+          style={{
+            marginTop: 4,
+            marginBottom: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ display: "flex", gap: 4 }}>
+            <button
+              onClick={() => setRightTab("timeline")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                background:
+                  rightTab === "timeline" ? "#111827" : "transparent",
+                color: rightTab === "timeline" ? "white" : "#111827",
+              }}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setRightTab("melt")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid #d1d5db",
+                fontSize: 12,
+                background: rightTab === "melt" ? "#111827" : "transparent",
+                color: rightTab === "melt" ? "white" : "#111827",
+              }}
+            >
+              MELT
+            </button>
+          </div>
+
+          {rightTab === "timeline" && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                fontSize: 11,
+                alignItems: "center",
+              }}
+            >
+              <select
+                value={filterTeam}
+                onChange={(e) => setFilterTeam(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                }}
+              >
+                <option value="all">All teams</option>
+                {TEAMS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                }}
+              >
+                <option value="all">All events</option>
+                <option value="injects">Injects</option>
+                <option value="exercise">Exercise state</option>
+                <option value="actions">Acknowledgements</option>
+              </select>
+
+              <input
+                placeholder="Filter text (title/obj/cap/actor)"
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid #d1d5db",
+                  padding: "3px 8px",
+                  minWidth: 140,
+                }}
+              />
+            </div>
+          )}
         </div>
-      )}
+
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {rightTab === "timeline" ? (
+            <Timeline timeline={filteredTimeline} />
+          ) : (
+            <MeltTable
+              rows={meltRows}
+              onSelectInject={(id) => setSelectedInjectId(id)}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
